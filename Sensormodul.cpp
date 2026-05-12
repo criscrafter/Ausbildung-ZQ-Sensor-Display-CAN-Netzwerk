@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include <SPI.h>
 #include <mcp2515.h>
 #include <Adafruit_MAX31865.h>
@@ -12,9 +11,9 @@ Adafruit_MAX31865 Zinnbad = Adafruit_MAX31865(11);                              
 struct can_frame canMsg1;                                                                     //CAN Nachrichten Frame Erstellen
 struct can_frame canMsg2;                                                                     //CAN Nachrichten Frame Erstellen
 
-float Motor1Temp = 0;                                                                         //Variable für Motor 1 Temperatur
-float Motor2Temp = 0;                                                                         //Variable für Motor 2 Temperatur
-float ZinnbadTemp = 0;                                                                        //Variable für Zinnbad Temperatur
+float Motor1Temp;                                                                         //Variable für Motor 1 Temperatur
+float Motor2Temp;                                                                         //Variable für Motor 2 Temperatur
+float ZinnbadTemp;                                                                        //Variable für Zinnbad Temperatur
 
 unsigned long lastSentMessage = millis();
 
@@ -29,6 +28,9 @@ unsigned long lastSentMessage = millis();
 
 
 void setup() {
+
+  Serial.begin(921600);
+
   Motor1.begin(MAX31865_3WIRE);
   Motor2.begin(MAX31865_3WIRE);
   Zinnbad.begin(MAX31865_3WIRE);
@@ -49,21 +51,33 @@ void setup() {
 
 void loop() {
 
-  Motor1Temp = Motor1.temperature(RNOMINAL, RREF_Motor1);
-  Motor2Temp = Motor2.temperature(RNOMINAL, RREF_Motor2);
-  ZinnbadTemp = Zinnbad.temperature(RNOMINAL, RREF_Zinnbad);
-
-  Motor1TempErrorCheck();
-  Motor2TempErrorCheck();
-  ZinnbadTempErrorCheck();
-
-
-  if((millis() - lastSentMessage) > 295){
+  if((millis() - lastSentMessage) > 245){
     lastSentMessage = millis();
 
-    int16_t ScaledMotor1Temp = (int16_t)((Motor1Temp + 200.0) * 100.0);
-    int16_t ScaledMotor2Temp = (int16_t)((Motor2Temp + 200.0) * 100.0);
-    int16_t ScaledZinnbadTemp = (int16_t)((ZinnbadTemp + 200.0) * 100.0);
+    Motor1Temp = Motor1.temperature(RNOMINAL_Motor1, RREF_Motor1);
+    Motor2Temp = Motor2.temperature(RNOMINAL_Motor2, RREF_Motor2);
+    ZinnbadTemp = Zinnbad.temperature(RNOMINAL_Zinnbad, RREF_Zinnbad);
+
+    uint16_t ScaledMotor1Temp;
+    if(TempErrorCheck(Motor1, "Motor 1")) {
+        ScaledMotor1Temp = 0;
+    } else {
+        ScaledMotor1Temp = (uint16_t)((Motor1Temp + 200.0) * 100.0);
+    }
+
+    uint16_t ScaledMotor2Temp;
+    if(TempErrorCheck(Motor2, "Motor 2")) {
+        ScaledMotor2Temp = 0;
+    } else {
+        ScaledMotor2Temp = (uint16_t)((Motor2Temp + 200.0) * 100.0);
+    }
+    
+    uint16_t ScaledZinnbadTemp;
+    if(TempErrorCheck(Zinnbad, "Zinnbad")) {
+        ScaledZinnbadTemp = 0;
+    } else {
+        ScaledZinnbadTemp = (uint16_t)((ZinnbadTemp + 200.0) * 100.0);
+    }
 
 
     canMsg1.data[0] = (ScaledMotor1Temp >> 8) & 0xFF;  // High byte
@@ -73,8 +87,6 @@ void loop() {
     canMsg1.data[3] = ScaledMotor2Temp & 0xFF;         // Low byte
     mcp2515.sendMessage(&canMsg1);
 
-    delay(5);
-
     canMsg2.data[0] = (ScaledZinnbadTemp >> 8) & 0xFF;  // High byte
     canMsg2.data[1] = ScaledZinnbadTemp & 0xFF;         // Low byte
     mcp2515.sendMessage(&canMsg2);
@@ -83,86 +95,18 @@ void loop() {
 
 }
 
-void Motor1TempErrorCheck(){
-  
-  uint8_t fault = Motor1.readFault();
+bool TempErrorCheck(Adafruit_MAX31865 &sensor, const char* name) {
+  uint8_t fault = sensor.readFault();
   if (fault) {
-    Serial.print("Motor 1 Fehler 0x"); Serial.println(fault, HEX);
-    if (fault & MAX31865_FAULT_HIGHTHRESH) {
-      Serial.println("RTD High Threshold"); 
-    }
-    if (fault & MAX31865_FAULT_LOWTHRESH) {
-      Serial.println("RTD Low Threshold"); 
-    }
-    if (fault & MAX31865_FAULT_REFINLOW) {
-      Serial.println("REFIN- > 0.85 x Bias"); 
-    }
-    if (fault & MAX31865_FAULT_REFINHIGH) {
-      Serial.println("REFIN- < 0.85 x Bias - FORCE- open"); 
-    }
-    if (fault & MAX31865_FAULT_RTDINLOW) {
-      Serial.println("RTDIN- < 0.85 x Bias - FORCE- open"); 
-    }
-    if (fault & MAX31865_FAULT_OVUV) {
-      Serial.println("Under/Over voltage"); 
-    }
-    Motor1.clearFault();
-
+    Serial.print(name); Serial.print(" Fehler 0x"); Serial.println(fault, HEX);
+    if (fault & MAX31865_FAULT_HIGHTHRESH)  Serial.println("RTD High Threshold");
+    if (fault & MAX31865_FAULT_LOWTHRESH)   Serial.println("RTD Low Threshold");
+    if (fault & MAX31865_FAULT_REFINLOW)    Serial.println("REFIN- > 0.85 x Bias");
+    if (fault & MAX31865_FAULT_REFINHIGH)   Serial.println("REFIN- < 0.85 x Bias - FORCE- open");
+    if (fault & MAX31865_FAULT_RTDINLOW)    Serial.println("RTDIN- < 0.85 x Bias - FORCE- open");
+    if (fault & MAX31865_FAULT_OVUV)        Serial.println("Under/Over voltage");
+    sensor.clearFault();
+    return true;  // Fehler vorhanden
   }
-
-}
-
-
-void Motor2TempErrorCheck(){
- 
-  uint8_t fault = Motor2.readFault();
-  if (fault) {
-    Serial.print("Motor 2 Fehler 0x"); Serial.println(fault, HEX);
-    if (fault & MAX31865_FAULT_HIGHTHRESH) {
-      Serial.println("RTD High Threshold"); 
-    }
-    if (fault & MAX31865_FAULT_LOWTHRESH) {
-      Serial.println("RTD Low Threshold"); 
-    }
-    if (fault & MAX31865_FAULT_REFINLOW) {
-      Serial.println("REFIN- > 0.85 x Bias"); 
-    }
-    if (fault & MAX31865_FAULT_REFINHIGH) {
-      Serial.println("REFIN- < 0.85 x Bias - FORCE- open"); 
-    }
-    if (fault & MAX31865_FAULT_RTDINLOW) {
-      Serial.println("RTDIN- < 0.85 x Bias - FORCE- open"); 
-    }
-    if (fault & MAX31865_FAULT_OVUV) {
-      Serial.println("Under/Over voltage"); 
-    }
-    Motor2.clearFault();
-  }
-}
-
-void ZinnbadTempErrorCheck(){
- 
-  uint8_t fault = Zinnbad.readFault();
-  if (fault) {
-    Serial.print("Zinnbad Fehler 0x"); Serial.println(fault, HEX);
-    if (fault & MAX31865_FAULT_HIGHTHRESH) {
-      Serial.println("RTD High Threshold"); 
-    }
-    if (fault & MAX31865_FAULT_LOWTHRESH) {
-      Serial.println("RTD Low Threshold"); 
-    }
-    if (fault & MAX31865_FAULT_REFINLOW) {
-      Serial.println("REFIN- > 0.85 x Bias"); 
-    }
-    if (fault & MAX31865_FAULT_REFINHIGH) {
-      Serial.println("REFIN- < 0.85 x Bias - FORCE- open"); 
-    }
-    if (fault & MAX31865_FAULT_RTDINLOW) {
-      Serial.println("RTDIN- < 0.85 x Bias - FORCE- open"); 
-    }
-    if (fault & MAX31865_FAULT_OVUV) {
-      Serial.println("Under/Over voltage"); 
-    }
-    Zinnbad.clearFault();
-  }
+  return false;
 }
