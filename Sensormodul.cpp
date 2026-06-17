@@ -3,10 +3,10 @@
 #include <Adafruit_MAX31865.h>
 
 
-MCP2515 mcp2515(8);                                                                           //CAN Controller CS Pin festlegen
-Adafruit_MAX31865 Motor1 = Adafruit_MAX31865(9);                                              //Motor 1 Sensor CS Pin festlegen
-Adafruit_MAX31865 Motor2 = Adafruit_MAX31865(10);                                             //Motor 2 Sensor CS Pin festlegen
-Adafruit_MAX31865 Zinnbad = Adafruit_MAX31865(11);                                            //Zinnbad Sensor CS Pin festlegen
+MCP2515 mcp2515(17);                                                                           //CAN Controller CS Pin festlegen
+Adafruit_MAX31865 Motor1 = Adafruit_MAX31865(5);                                              //Motor 1 Sensor CS Pin festlegen
+Adafruit_MAX31865 Motor2 = Adafruit_MAX31865(6);                                             //Motor 2 Sensor CS Pin festlegen
+Adafruit_MAX31865 Zinnbad = Adafruit_MAX31865(7);                                            //Zinnbad Sensor CS Pin festlegen
 
 struct can_frame canMsg1;                                                                     //CAN Nachrichten Frame Erstellen
 struct can_frame canMsg2;                                                                     //CAN Nachrichten Frame Erstellen
@@ -17,15 +17,30 @@ float ZinnbadTemp;                                                              
 
 unsigned long lastSentMessage = millis();
 
-#define RREF_Motor1      430.0                                                                //Nominalwert vom Referenzwiderstand Motor 1  (430 bei PT100, 4300 bei PT1000)
-#define RREF_Motor2      430.0                                                                //Nominalwert vom Referenzwiderstand Motor 2  (430 bei PT100, 4300 bei PT1000)
-#define RREF_Zinnbad     430.0                                                                //Nominalwert vom Referenzwiderstand Zinnbad  (430 bei PT100, 4300 bei PT1000)
+#define RREF_Motor1      425.0                                                                //Nominalwert vom Referenzwiderstand Motor 1  (430 bei PT100, 4300 bei PT1000)
+#define RREF_Motor2      425.0                                                                //Nominalwert vom Referenzwiderstand Motor 2  (430 bei PT100, 4300 bei PT1000)
+#define RREF_Zinnbad     425.0                                                                //Nominalwert vom Referenzwiderstand Zinnbad  (430 bei PT100, 4300 bei PT1000)
 
 #define RNOMINAL_Motor1   100                                                                 //Nominalwert Sensor Motor 1  (100 bei PT100, 1000 bei PT1000)
 #define RNOMINAL_Motor2   100                                                                 //Nominalwert Sensor Motor 2  (100 bei PT100, 1000 bei PT1000)
 #define RNOMINAL_Zinnbad  100                                                                 //Nominalwert Sensor Zinnbad  (100 bei PT100, 1000 bei PT1000)
 
 
+bool TempErrorCheck(Adafruit_MAX31865 &sensor, const char* name) {
+  uint8_t fault = sensor.readFault();
+  if (fault) {
+    Serial.print(name); Serial.print(" Fehler 0x"); Serial.println(fault, HEX);
+    if (fault & MAX31865_FAULT_HIGHTHRESH)  Serial.println("RTD High Threshold");
+    if (fault & MAX31865_FAULT_LOWTHRESH)   Serial.println("RTD Low Threshold");
+    if (fault & MAX31865_FAULT_REFINLOW)    Serial.println("REFIN- > 0.85 x Bias");
+    if (fault & MAX31865_FAULT_REFINHIGH)   Serial.println("REFIN- < 0.85 x Bias - FORCE- open");
+    if (fault & MAX31865_FAULT_RTDINLOW)    Serial.println("RTDIN- < 0.85 x Bias - FORCE- open");
+    if (fault & MAX31865_FAULT_OVUV)        Serial.println("Under/Over voltage");
+    sensor.clearFault();
+    return true;  // Fehler vorhanden
+  }
+  return false;
+}
 
 void setup() {
 
@@ -86,27 +101,11 @@ void loop() {
     canMsg1.data[2] = (ScaledMotor2Temp >> 8) & 0xFF;  // High byte
     canMsg1.data[3] = ScaledMotor2Temp & 0xFF;         // Low byte
     mcp2515.sendMessage(&canMsg1);
-
+    
     canMsg2.data[0] = (ScaledZinnbadTemp >> 8) & 0xFF;  // High byte
     canMsg2.data[1] = ScaledZinnbadTemp & 0xFF;         // Low byte
     mcp2515.sendMessage(&canMsg2);
 
   }
 
-}
-
-bool TempErrorCheck(Adafruit_MAX31865 &sensor, const char* name) {
-  uint8_t fault = sensor.readFault();
-  if (fault) {
-    Serial.print(name); Serial.print(" Fehler 0x"); Serial.println(fault, HEX);
-    if (fault & MAX31865_FAULT_HIGHTHRESH)  Serial.println("RTD High Threshold");
-    if (fault & MAX31865_FAULT_LOWTHRESH)   Serial.println("RTD Low Threshold");
-    if (fault & MAX31865_FAULT_REFINLOW)    Serial.println("REFIN- > 0.85 x Bias");
-    if (fault & MAX31865_FAULT_REFINHIGH)   Serial.println("REFIN- < 0.85 x Bias - FORCE- open");
-    if (fault & MAX31865_FAULT_RTDINLOW)    Serial.println("RTDIN- < 0.85 x Bias - FORCE- open");
-    if (fault & MAX31865_FAULT_OVUV)        Serial.println("Under/Over voltage");
-    sensor.clearFault();
-    return true;  // Fehler vorhanden
-  }
-  return false;
 }
